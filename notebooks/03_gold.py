@@ -1,17 +1,17 @@
 # Databricks notebook source
 # MAGIC %md
-# MAGIC # Gold: tre tabeller någon faktiskt vill se
+# MAGIC # Gold: three tables someone actually wants
 # MAGIC
-# MAGIC 1. `gold.production_monthly` — månadsproduktion per elområde och
-# MAGIC    kraftslag, från båda källorna i samma form.
-# MAGIC 2. `gold.source_reconciliation` — skillnaden mellan Svenska
-# MAGIC    kraftnäts uppmätta värden och SCB:s statistik, månad för månad.
-# MAGIC 3. `gold.hourly_profile` — dygnsprofil per kraftslag, det
-# MAGIC    timupplösningen ger som månadsstatistik aldrig kan visa.
+# MAGIC 1. `gold.production_monthly` — monthly production per bidding zone
+# MAGIC    and production type, from both sources in the same shape.
+# MAGIC 2. `gold.source_reconciliation` — the difference between Svenska
+# MAGIC    kraftnät's measured values and SCB's statistics, month by month.
+# MAGIC 3. `gold.hourly_profile` — daily profile per production type, what
+# MAGIC    hourly resolution gives that monthly statistics never can.
 # MAGIC
-# MAGIC Tabell 2 är poängen. Två myndigheter beskriver samma fysiska
-# MAGIC verklighet, och siffrorna skiljer sig. Frågan är inte vem som har
-# MAGIC rätt utan hur mycket, var och varför.
+# MAGIC Table 2 is the point. Two agencies describe the same physical
+# MAGIC reality and the numbers differ. The question is not who is right
+# MAGIC but by how much, where, and why.
 
 # COMMAND ----------
 
@@ -21,20 +21,20 @@ CATALOG = "workspace"
 spark.sql(f"USE CATALOG {CATALOG}")
 spark.sql("CREATE SCHEMA IF NOT EXISTS gold")
 
-# SCB anger GWh i heltal. Ett värde på 2 690 GWh kan alltså ligga var
-# som helst mellan 2 689,5 och 2 690,5, vilket är 500 MWh åt vardera
-# hållet. Mindre skillnader än så är avrundning, inte oenighet.
+# SCB reports GWh as integers. A value of 2,690 GWh could be anywhere
+# between 2,689.5 and 2,690.5, which is 500 MWh either way. Differences
+# smaller than that are rounding, not disagreement.
 SCB_ROUNDING_MWH = 500
 
 # COMMAND ----------
 
 # MAGIC %md
-# MAGIC ## 1. Månadsproduktion
+# MAGIC ## 1. Monthly production
 # MAGIC
-# MAGIC Timvärdena summeras till månad. En månad tas bara med om alla dess
-# MAGIC timmar finns, annars blir summan för låg och jämförelsen missvisande
-# MAGIC utan att det syns. Ofullständiga månader hamnar i `gold.excluded_months`
-# MAGIC i stället för att tyst försvinna.
+# MAGIC Hourly values are summed to months. A month is only included if all
+# MAGIC its hours are present, otherwise the sum is too low and the
+# MAGIC comparison is misleading without showing it. Incomplete months land
+# MAGIC in `gold.excluded_months` rather than disappearing silently.
 
 # COMMAND ----------
 
@@ -56,7 +56,7 @@ excluded = per_month.filter(~F.col("is_complete"))
 (excluded.select("area", "category", "month", "hours_present", "hours_expected")
     .write.format("delta").mode("overwrite").option("overwriteSchema", "true")
     .saveAsTable("gold.excluded_months"))
-print(f"{excluded.count()} ofullständiga månader undantagna (väntat: februari 2025 är sista)")
+print(f"{excluded.count()} incomplete months excluded (expected: February 2025 is the last)")
 
 mimer_monthly = (
     per_month.filter("is_complete")
@@ -76,21 +76,21 @@ production_monthly = mimer_monthly.unionByName(scb_monthly)
 
 display(
     production_monthly.groupBy("source", "category")
-    .agg(F.count("*").alias("rader"), F.min("month").alias("från"), F.max("month").alias("till"))
+    .agg(F.count("*").alias("rows"), F.min("month").alias("from"), F.max("month").alias("to"))
     .orderBy("category", "source")
 )
 
 # COMMAND ----------
 
 # MAGIC %md
-# MAGIC ## 2. Stämmer källorna överens?
+# MAGIC ## 2. Do the sources agree?
 # MAGIC
-# MAGIC Bara kategorier som mappningstabellen markerat som jämförbara tas
-# MAGIC med. Mimers *uppmätt ospecificerad produktion* har ingen motsvarighet
-# MAGIC hos SCB och skulle bara skapa falska avvikelser.
+# MAGIC Only categories the mapping table marks as comparable are included.
+# MAGIC Mimer's measured unspecified production has no SCB counterpart and
+# MAGIC would only create false deviations.
 # MAGIC
-# MAGIC `within_rounding` säger om skillnaden ryms i SCB:s egen avrundning.
-# MAGIC Gör den det finns ingen oenighet att förklara.
+# MAGIC `within_rounding` says whether the difference fits inside SCB's own
+# MAGIC rounding. If it does, there is no disagreement to explain.
 
 # COMMAND ----------
 
@@ -127,17 +127,17 @@ reconciliation = (
 (reconciliation.write.format("delta").mode("overwrite").option("overwriteSchema", "true")
     .saveAsTable("gold.source_reconciliation"))
 
-print(f"{reconciliation.count()} månader jämförda")
+print(f"{reconciliation.count()} months compared")
 
 # COMMAND ----------
 
 # MAGIC %md
-# MAGIC ### Hur stora är skillnaderna?
+# MAGIC ### How large are the differences?
 # MAGIC
-# MAGIC `median_abs_pct` är mer användbar än medelvärdet, eftersom enstaka
-# MAGIC månader med små nämnare annars drar iväg hela bilden. Solkraft i
-# MAGIC december är ett sådant fall: några enstaka GWh gör att en liten
-# MAGIC absolut skillnad ser ut som en stor procentuell.
+# MAGIC `median_abs_pct` is more useful than the mean, since a few months
+# MAGIC with small denominators would otherwise distort the whole picture.
+# MAGIC Solar in December is one such case: a few GWh make a small absolute
+# MAGIC difference look like a large relative one.
 
 # COMMAND ----------
 
@@ -158,12 +158,12 @@ display(summary)
 # COMMAND ----------
 
 # MAGIC %md
-# MAGIC Ett positivt `mean_diff_mwh` betyder att Svenska kraftnät
-# MAGIC genomgående ligger högre än SCB, ett negativt tvärtom. Ett litet
-# MAGIC tal som växlar tecken är brus, ett tal som konsekvent pekar åt
-# MAGIC samma håll är en definitionsskillnad.
+# MAGIC A positive `mean_diff_mwh` means Svenska kraftnät sits consistently
+# MAGIC above SCB, a negative one the opposite. A small number that flips
+# MAGIC sign is noise; a number that points the same way in every zone is a
+# MAGIC difference in definition.
 # MAGIC
-# MAGIC De största avvikelserna, att titta närmare på:
+# MAGIC The largest deviations, worth a closer look:
 
 # COMMAND ----------
 
@@ -175,11 +175,11 @@ display(
 # COMMAND ----------
 
 # MAGIC %md
-# MAGIC ## 3. Dygnsprofil
+# MAGIC ## 3. Daily profile
 # MAGIC
-# MAGIC Det här går inte att få ur SCB. Vindkraft varierar över dygnet på
-# MAGIC ett annat sätt än kärnkraft, och en månadssiffra döljer det helt.
-# MAGIC Tabellen är motiveringen till att timdata alls hämtades.
+# MAGIC This cannot be derived from SCB. Wind varies across the day in a
+# MAGIC different way than nuclear, and a monthly figure hides it entirely.
+# MAGIC This table is the justification for fetching hourly data at all.
 
 # COMMAND ----------
 
@@ -208,10 +208,10 @@ display(
 # COMMAND ----------
 
 # MAGIC %md
-# MAGIC ## Kontroll innan gold får användas
+# MAGIC ## Check before gold may be used
 # MAGIC
-# MAGIC Aggregaten ska inte tappa energi. Summan i gold måste vara samma
-# MAGIC som summan i silver för de månader som togs med.
+# MAGIC Aggregation must not lose energy. The sum in gold has to equal the
+# MAGIC sum in silver for the months that were included.
 
 # COMMAND ----------
 
@@ -224,7 +224,7 @@ gold_sum = (
     .agg(F.sum("value_mwh").alias("s")).first()["s"]
 )
 assert abs(float(silver_sum) - float(gold_sum)) < 1, \
-    f"Energi försvann i aggregeringen: {silver_sum} mot {gold_sum}"
-print(f"OK: {float(gold_sum):,.0f} MWh i både silver och gold")
+    f"Energy lost in aggregation: {silver_sum} vs {gold_sum}"
+print(f"OK: {float(gold_sum):,.0f} MWh in both silver and gold")
 
 display(spark.sql("SHOW TABLES IN gold"))

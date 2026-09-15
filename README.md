@@ -1,218 +1,220 @@
 # sweden-power-lakehouse
 
-Två svenska myndigheter publicerar elproduktion per elområde. Svenska
-kraftnät mäter timme för timme i kWh, SCB publicerar månadsstatistik i
-GWh. De beskriver samma fysiska verklighet.
+Two Swedish public agencies publish electricity production per bidding
+zone. Svenska kraftnät (the transmission system operator) measures hour by
+hour in kWh; Statistics Sweden (SCB) publishes monthly statistics in GWh.
+They describe the same physical reality.
 
-Det här projektet ställer dem mot varandra i en medallion-pipeline på
-Databricks och svarar på en enkel fråga: **stämmer de överens, och när de
-inte gör det, varför?**
+This project puts them against each other in a medallion pipeline on
+Databricks and answers one question: **do they agree, and where they do
+not, why?**
 
-Datan är helt publik. Ingen inloggning, inga personuppgifter, allt går att
-köra om från källan.
+All data is public. No login, no personal data, everything can be
+reproduced from the source.
 
 ---
 
-## Resultatet
+## The result
 
-50 månader, januari 2021 till februari 2025, sex kraftslag och fyra
-elområden.
+50 months, January 2021 to February 2025, six production types and four
+bidding zones.
 
-| Kraftslag | Medianavvikelse | Riktning | Inom SCB:s avrundning |
+| Production type | Median deviation | Direction | Within SCB's rounding |
 |---|---|---|---|
-| Vattenkraft | 0,07–0,19 % | Mimer något högre | 15–44 av 50 månader |
-| Vindkraft | 0,09–0,17 % | Mimer något högre | 15–22 av 50 |
-| Kärnkraft | 0,09 % | blandat | 13 av 50 |
-| Solkraft | 39–52 % | **Mimer lägre** | 0–26 av 50 |
-| Värmekraft | 37–81 % | **Mimer lägre** | 0 av 50 |
+| Hydro | 0.07–0.19 % | Mimer slightly higher | 15–44 of 50 months |
+| Wind | 0.09–0.17 % | Mimer slightly higher | 15–22 of 50 |
+| Nuclear | 0.09 % | mixed | 13 of 50 |
+| Solar | 39–52 % | **Mimer lower** | 0–26 of 50 |
+| Thermal | 37–81 % | **Mimer lower** | 0 of 50 |
 
-Tre kraftslag stämmer på en tiondels procent. Två gör det inte, och de
-avviker åt samma håll i samtliga elområden och samtliga månader. Det är
-inte brus.
+Three production types agree to within a tenth of a percent. Two do not,
+and they deviate in the same direction in every bidding zone and every
+month. That is not noise.
 
-### Solkraft och värmekraft: definitionsskillnad, inte fel
+### Solar and thermal: a difference in definition, not an error
 
-SCB:s egen dokumentation ger svaret på solkraften. Nätansluten solkraft
-inkluderar hos SCB *uppskattad egenanvänd produktion av anläggnings-
-ägaren*. Svenska kraftnät avräknar bara det som faktiskt matas in på
-nätet. El som produceras på ett villatak och förbrukas i samma hus finns
-alltså i den ena källan men inte i den andra, och skillnaden är ungefär
-hälften av SCB:s siffra.
+SCB's own documentation answers the solar case. Grid-connected solar
+includes, for SCB, *estimated self-consumed production by the plant
+owner*. Svenska kraftnät settles only what is actually fed into the grid.
+Electricity produced on a rooftop and consumed in the same house exists in
+one source but not the other, and the difference is roughly half of SCB's
+figure.
 
-Värmekraften visar samma mönster men större. Den mest sannolika
-förklaringen är densamma, att industriell kraftvärme som förbrukas
-internt inte är med i balansavräkningen, men jag har inte belagt det i
-källornas dokumentation och påstår det därför inte.
+Thermal shows the same pattern but larger. The most likely explanation is
+the same one — industrial combined heat and power consumed on site is not
+part of balance settlement — but I have not confirmed it in the sources'
+documentation, and so I do not claim it.
 
-**Ingen av källorna har fel.** De svarar på olika frågor. Frågar man "hur
-mycket el produceras" är SCB:s siffra rätt. Frågar man "hur mycket el når
-nätet" är Svenska kraftnäts rätt. Den som jämför dem utan att veta det får
-ett tal som ser ut som ett fel men inte är det.
+**Neither source is wrong.** They answer different questions. Ask "how
+much electricity is produced" and SCB is right. Ask "how much reaches the
+grid" and Svenska kraftnät is right. Comparing them without knowing this
+yields a number that looks like an error but is not one.
 
-### Augusti 2024: samma månad, två tidpunkter
+### August 2024: same month, two points in time
 
-Kärnkraften i SE3 ligger på 0,09 procents medianavvikelse. En enda månad
-sticker ut: augusti 2024, där Svenska kraftnät ligger 322 GWh lägre,
-alltså 7,5 procent.
+Nuclear in SE3 sits at a 0.09 % median deviation. One month stands out:
+August 2024, where Svenska kraftnät is 322 GWh lower, or 7.5 %.
 
-Publiceringstidpunkten förklarar det. Varje månad 2024 publicerades
-färdigt dagen efter månadsskiftet. Augusti är den enda som fick sin sista
-publicering den 5 september, fyra dagar senare än alla andra. Svenska
-kraftnät gick tillbaka och rättade månaden. SCB:s siffra i den hämtade
-filen är preliminär och fixerad vid ett tidigare tillfälle.
+The publication timestamp explains it. Every month of 2024 was finalised
+the day after the month ended. August is the only one whose last
+publication came on 5 September, four days later than all the others.
+Svenska kraftnät went back and corrected the month. SCB's figure in the
+downloaded file is preliminary and fixed at an earlier point in time.
 
-Två korrekta källor, samma månad, olika svar, för att de är fixerade vid
-olika tidpunkter. Det syns bara för att publiceringstidpunkten bevarades
-hela vägen från bronze.
-
----
-
-## Varför medallion
-
-**Bronze** är en trogen kopia. Allt som text, inget borttaget, inget
-omtolkat. Varje fil registreras med URL, tidpunkt, storlek och SHA-256 i
-ett manifest. Går något fel i silver kan det köras om utan att någon källa
-behöver kontaktas igen, och det går att bevisa vilken version av datan som
-användes.
-
-**Silver** är där besluten fattas, och där de går att granska. Bred form
-till lång, ISO-8859-1 till UTF-8, kWh och GWh till MWh, SN-koder till
-SE-koder, decimalkomma till punkt, kategorier till en gemensam vokabulär.
-Varje beslut är ett stycke kod som kan läsas och ifrågasättas.
-
-**Gold** är aggregat någon faktiskt vill se: månadsproduktion, jämförelsen
-mellan källorna, och dygnsprofil per kraftslag.
-
-Datamängden är liten nog att Pandas hade räckt. Poängen med lagren är inte
-prestanda utan att varje transformation har en plats där den hör hemma,
-och att det går att svara på frågan "varifrån kom den här siffran".
+Two correct sources, the same month, different answers, because they are
+fixed at different vintages. This is only visible because the publication
+timestamp was preserved all the way from bronze.
 
 ---
 
-## Skillnaderna mellan källorna
+## Why medallion
 
-Fullständig lista i [`docs/kallskillnader.md`](docs/kallskillnader.md),
-skriven innan någon kod skrevs. I korthet:
+**Bronze** is a faithful copy. Everything as text, nothing removed,
+nothing reinterpreted. Each file is registered with URL, timestamp, size
+and SHA-256 in a manifest. If something goes wrong in silver it can be
+rebuilt without contacting the source again, and it is possible to prove
+which version of the data was used.
 
-| | Svenska kraftnät (Mimer) | SCB (tabell TAB78) |
+**Silver** is where the decisions are made, and where they can be
+reviewed. Wide to long, ISO-8859-1 to UTF-8, kWh and GWh to MWh, SN codes
+to SE codes, decimal comma to point, categories to a shared vocabulary.
+Every decision is a piece of code that can be read and challenged.
+
+**Gold** is aggregates someone actually wants: monthly production, the
+comparison between sources, and a daily profile per production type.
+
+The dataset is small enough that Pandas would have sufficed. The point of
+the layers is not performance but that every transformation has a place
+where it belongs, and that the question "where did this number come from"
+has an answer.
+
+---
+
+## Differences between the sources
+
+Full list in [`docs/source-differences.md`](docs/source-differences.md),
+written before any code. In short:
+
+| | Svenska kraftnät (Mimer) | SCB (table TAB78) |
 |---|---|---|
-| Upplösning | timme | kalendermånad |
-| Enhet | kWh | GWh, heltal |
-| Form | en rad per timme | en kolumn per månad |
-| Områdeskod | SN1–SN4 | SE1–SE4 |
-| Teckenkodning | UTF-8 med BOM | ISO-8859-1 |
-| Avgränsare | semikolon | komma |
-| Decimaltecken | komma | punkt |
-| Status | avräknad, med publiceringstidpunkt | preliminär, revideras |
+| Resolution | hour | calendar month |
+| Unit | kWh | GWh, integers |
+| Shape | one row per hour | one column per month |
+| Zone code | SN1–SN4 | SE1–SE4 |
+| Encoding | UTF-8 with BOM | ISO-8859-1 |
+| Delimiter | semicolon | comma |
+| Decimal mark | comma | point |
+| Status | settled, with publication timestamp | preliminary, revised |
 
-SCB-filen är formaterad för att läsas av en människa i Excel: titelrad,
-tom rad, bred form, blanksteg på slutet av kategorinamnen och dubbla
-mellanslag inuti dem. Fyra av de sex fel som uppstod under bygget kom från
-den filen. Mimer-filerna gick rakt in.
+The SCB file is formatted to be read by a human in Excel: a title row, a
+blank row, wide format, trailing spaces on the category names and double
+spaces inside them. Four of the six failures during the build came from
+that one file. The Mimer files loaded straight in.
 
-### Noll betyder två olika saker
+### Zero means two different things
 
-SCB skriver 0 för kärnkraft i SE1, SE2 och SE4. Det finns inga
-kärnkraftverk där, så det är inte ett uppmätt nollvärde utan "kategorin är
-inte tillämplig". Mimer svarar med en tom fil för samma kombinationer.
+SCB writes 0 for nuclear in SE1, SE2 and SE4. There are no nuclear plants
+there, so it is not a measured zero but "this category does not apply".
+Mimer responds with an empty file for the same combinations.
 
-Silver använder Mimers manifest som facit och märker de raderna
-`not_applicable` i stället för att låta dem ligga som nollor bland
-uppmätta värden. Skrivs båda som 0 blir varje medelvärde över elområden
-fel.
+Silver uses Mimer's manifest as the authority and marks those rows
+`not_applicable` rather than leaving them as zeros among measured values.
+Writing both as 0 makes every average across bidding zones wrong.
 
 ---
 
-## Kvalitetskontroller
+## Quality gates
 
-Jobbet failar hellre högljutt än levererar tyst fel data.
+The job fails loudly rather than delivering quietly wrong data.
 
-| Kontroll | Vad den fångar |
+| Check | What it catches |
 |---|---|
-| Radantal mot manifest | att bronze innehåller precis det som hämtades |
-| Otolkade rader | tidsstämplar och tal som inte gick att konvertera |
-| Okända kategorier | en kategori som tyst skulle falla bort i joinen |
-| Unikhet | dubbletter per källa, område, kraftslag och timme |
-| Timmar per dygn | ofullständiga dygn, och tidszonsfrågan |
-| Negativa värden | utom vattenkraft, där pumpkraft kan ge negativ netto |
-| Ofullständiga månader | månader som annars summerar för lågt utan att det syns |
-| Energibalans silver mot gold | att aggregeringen inte tappar något |
-| **Solkraft på natten** | fel kraftslag under rätt namn |
+| Row count against manifest | that bronze holds exactly what was fetched |
+| Unparsed rows | timestamps and numbers that failed to convert |
+| Unknown categories | a category that would silently drop out of the join |
+| Uniqueness | duplicates per source, zone, type and hour |
+| Hours per day | incomplete days, and the time zone question |
+| Negative values | except hydro, where pumped storage can go negative |
+| Incomplete months | months that would otherwise sum too low unnoticed |
+| Energy balance silver to gold | that aggregation loses nothing |
+| **Solar at night** | the wrong production type under the right name |
 
-Den sista är den viktigaste, och den enda som bygger på hur verkligheten
-fungerar i stället för på datatyper. Kraftslaget står bara i Mimers
-URL-parameter, inte i filen. En felaktig kod ger inte ett felmeddelande
-utan **rätt namn på fel data**, vilket passerar varje formell kontroll.
-Solkraft klockan tre på natten ska vara noll. Är den inte det har något
-mappats fel.
+The last one matters most, and it is the only one grounded in how reality
+works rather than in data types. The production type exists only in
+Mimer's URL parameter, not in the file. A wrong code produces no error
+message but **the right name on the wrong data**, which passes every
+formal check. Solar output at three in the morning must be zero. If it is
+not, something mapped incorrectly.
 
-Två kontroller fick skrivas om under bygget:
+Two checks had to be rewritten during the build:
 
-- Kontrollen av teckenkodning letade efter ersättningstecken. ISO-8859-1
-  kan avkoda vilken bytesekvens som helst utan att klaga och producerar
-  därför aldrig ett sådant tecken. Kontrollen kunde alltså aldrig falla.
-  Den letar nu efter ett ord som måste finnas i filen.
-- Nattkontrollen för solkraft var för sträng och slog på verklig
-  produktion i gryning och skymning. Den täcker nu bara timmarna då solen
-  är säkert nere.
+- The encoding check looked for replacement characters. ISO-8859-1 can
+  decode any byte sequence without complaining and therefore never
+  produces one, so the check could never fail. It now looks for a word
+  that must exist in the file.
+- The solar night check used an absolute threshold and flagged 1,083
+  hours of one to two MWh — settled data carries small corrections that
+  are real but negligible. The test is now relative: night output is
+  compared to midday output in the same zone. A wrong mapping would put
+  the two on the same order of magnitude; a correct one leaves night as a
+  rounding error.
 
-En kvalitetskontroll som inte kan falla är ingen kvalitetskontroll.
-
----
-
-## Tidszonen
-
-Mimer anger perioder som `2024-01-01 00:00` utan tidszon. Är det svensk
-lokal tid har sommartidsdygnet i mars 23 timmar och dygnet i oktober 25.
-Årssumman avslöjar ingenting, eftersom de tar ut varandra.
-
-Kontrollen av timmar per dygn ger 24 timmar för samtliga dygn, inklusive
-sommartidsdygnen. Tidsstämplarna är alltså inte lokal tid med sommartid.
-Utan den kontrollen hade en månadssumma blivit fel med en timme två
-gånger om året.
+A quality check that cannot fail is not a quality check.
 
 ---
 
-## Köra själv
+## Time zone
+
+Mimer states periods as `2024-01-01 00:00` without a time zone. If that is
+Swedish local time, the DST day in March has 23 hours and the one in
+October has 25. An annual total reveals nothing, since the two cancel out.
+
+The hours-per-day check returns 24 for every day, including the DST days.
+The timestamps are therefore not local time with daylight saving. Without
+that check, a monthly sum would be off by one hour twice a year.
+
+---
+
+## Running it
 
 ```bash
-# 1. Hämta rådata från Mimer (endast standardbiblioteket)
+# 1. Fetch raw data from Mimer (standard library only)
 python ingest/download_mimer.py
 
-# 2. Ladda ner SCB tabell TAB78 manuellt till data/raw/scb/
+# 2. Download SCB table TAB78 manually into data/raw/scb/
 ```
 
-Ladda sedan upp filerna till volymen `workspace.bronze.landing` i
-Databricks Free Edition och kör notebookarna i ordning:
+Then upload the files to the volume `workspace.bronze.landing` in
+Databricks Free Edition and run the notebooks in order:
 
-| Notebook | Vad den gör |
+| Notebook | What it does |
 |---|---|
-| `notebooks/01_bronze.py` | rådata till Delta, oförändrad |
-| `notebooks/02_silver.py` | normalisering och kvalitetsgrindar |
-| `notebooks/03_gold.py` | aggregat och källjämförelse |
+| `notebooks/01_bronze.py` | raw data into Delta, unchanged |
+| `notebooks/02_silver.py` | normalisation and quality gates |
+| `notebooks/03_gold.py` | aggregates and source reconciliation |
 
-Allt körs på Databricks Free Edition utan kostnad.
+Everything runs on Databricks Free Edition at no cost.
 
 ---
 
-## Vad jag skulle göra annorlunda i skarpt läge
+## What I would do differently in production
 
-- **Inkrementell laddning.** Pipelinen skriver om allt vid varje körning.
-  Det är rimligt för fyra år historik som inte ändras, men fel för en
-  källa som uppdateras dagligen. Rätt lösning är merge på nyckel med
-  publiceringstidpunkt som versionsfält.
-- **Orkestrering.** Notebookarna körs manuellt i ordning. Databricks Jobs
-  klarar kedjan, men beroenden mellan steg och omkörning vid fel hör
-  hemma i Airflow eller Lakeflow.
-- **Testtäckning.** Kvalitetskontrollerna körs på riktig data. Det finns
-  inga enhetstester på transformationerna själva, med syntetiska fall för
-  decimalkomma, sommartid och tomma källsvar.
-- **Historik.** SCB revideras, men bara den senaste hämtningen sparas per
-  datummapp. En riktig lösning behåller varje vintage och kan svara på
-  "vad sa SCB om mars 2023, i mars 2023".
-- **eSett.** Mimer slutar publicera 2025-03-17, därefter ligger datan hos
-  eSett. Att lägga till den källan är nästa steg, och den blir ett test på
-  om lagren verkligen är löst kopplade.
+- **Incremental loading.** The pipeline rewrites everything on each run.
+  Reasonable for four years of history that does not change, wrong for a
+  source updated daily. The right approach is a merge on key with the
+  publication timestamp as the version field.
+- **Orchestration.** The notebooks are run manually in order. Databricks
+  Jobs can handle the chain, but dependencies between steps and retry on
+  failure belong in Airflow or Lakeflow.
+- **Test coverage.** The quality gates run against real data. There are no
+  unit tests on the transformations themselves, with synthetic cases for
+  decimal comma, daylight saving and empty source responses.
+- **History.** SCB revises its figures, but only the latest download is
+  kept per dated folder. A real solution keeps every vintage and can
+  answer "what did SCB say about March 2023, in March 2023".
+- **eSett.** Mimer stops publishing on 2025-03-17; after that the data
+  lives with eSett. Adding that source is the next step, and it is a test
+  of whether the layers really are loosely coupled.
 
 ---
 
@@ -221,12 +223,13 @@ Allt körs på Databricks Free Edition utan kostnad.
 Databricks Free Edition (serverless), PySpark, Delta Lake, Unity Catalog,
 Python.
 
-Kodkommentarerna är på svenska, eftersom källorna och deras dokumentation
-är det.
+Swedish source terms are kept in the original throughout — *elområde*
+(bidding zone), *Mimer*, *avräknad* (settled) — so that they can be looked
+up in the sources.
 
-## Källor
+## Sources
 
 - Svenska kraftnät, Mimer: <https://mimer.svk.se/ProductionConsumption/ProductionIndex>
-- SCB, tabell TAB78, Elproduktion och elanvändning efter elområde:
+- SCB, table TAB78, electricity production and use by bidding zone:
   <https://www.statistikdatabasen.scb.se/pxweb/sv/ssd/START__EN__EN0108__EN0108A/ElEO/>
 - API: `https://api.scb.se/OV0104/v1/doris/sv/ssd/START/EN/EN0108/EN0108A/ElEO`

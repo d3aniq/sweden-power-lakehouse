@@ -1,31 +1,32 @@
 # Databricks notebook source
 # MAGIC %md
-# MAGIC # Bronze: rådata in, oförändrad
+# MAGIC # Bronze: raw data in, unchanged
 # MAGIC
-# MAGIC Bronze är en trogen kopia av det källorna levererade. Ingen
-# MAGIC typkonvertering, ingen normalisering, inga borttagna rader. Allt
-# MAGIC lagras som text. Går något fel längre fram kan silver köras om utan
-# MAGIC att någon källa behöver kontaktas igen.
+# MAGIC Bronze is a faithful copy of what the sources delivered. No type
+# MAGIC conversion, no normalisation, no rows removed. Everything is stored
+# MAGIC as text. If something goes wrong later, silver can be rebuilt
+# MAGIC without going back to the source.
 # MAGIC
-# MAGIC Tre saker läggs till, aldrig något tas bort:
-# MAGIC `_source`, `_source_file` och `_ingested_at`.
+# MAGIC Three things are added, nothing is ever taken away:
+# MAGIC `_source`, `_source_file` and `_ingested_at`.
 # MAGIC
-# MAGIC Två beslut värda att förklara:
+# MAGIC Two decisions worth explaining:
 # MAGIC
-# MAGIC 1. **Mimers kolumnnamn döps om.** Originalen är `Period`,
-# MAGIC    `Avräknad (kWh)` och `Publiceringstidpunkt`. Parenteser och
-# MAGIC    blanksteg fungerar inte i Delta utan column mapping, så namnen
-# MAGIC    blir `period_raw`, `settled_kwh_raw` och `published_at_raw`.
-# MAGIC    Originalnamnen står i den här cellen. Innehållet är orört.
-# MAGIC 2. **SCB lagras som textrader.** Filen har en titelrad och en tom
-# MAGIC    rad före rubriken, är bred och ligger i ISO-8859-1. Att tolka
-# MAGIC    strukturen är ett beslut, och beslut hör hemma i silver. Bronze
-# MAGIC    rättar bara teckenkodningen och sparar raderna som de står.
+# MAGIC 1. **Mimer's column names are renamed.** The originals are `Period`,
+# MAGIC    `Avräknad (kWh)` and `Publiceringstidpunkt`. Parentheses and
+# MAGIC    spaces do not work in Delta without column mapping, so they
+# MAGIC    become `period_raw`, `settled_kwh_raw` and `published_at_raw`.
+# MAGIC    The original names are recorded here. The content is untouched.
+# MAGIC 2. **SCB is stored as text lines.** The file has a title row and a
+# MAGIC    blank row before the header, it is wide, and it is ISO-8859-1.
+# MAGIC    Interpreting that structure is a decision, and decisions belong
+# MAGIC    in silver. Bronze only fixes the encoding and stores the lines
+# MAGIC    as they are.
 # MAGIC
-# MAGIC    Filen läses via CSV-läsaren med en avgränsare som inte finns i
-# MAGIC    datan, inte via `spark.read.text()`. Textläsaren tar ingen
-# MAGIC    `encoding`-option utan antar alltid UTF-8, och SCB-filen är
-# MAGIC    ISO-8859-1.
+# MAGIC    The file is read through the CSV reader with a delimiter that
+# MAGIC    does not occur in the data, not through `spark.read.text()`. The
+# MAGIC    text reader takes no `encoding` option and always assumes UTF-8,
+# MAGIC    and the SCB file is ISO-8859-1.
 
 # COMMAND ----------
 
@@ -39,18 +40,20 @@ spark.sql(f"USE CATALOG {CATALOG}")
 # COMMAND ----------
 
 # MAGIC %md
-# MAGIC ## Mimer: timvärden per elområde och kraftslag
+# MAGIC ## Mimer: hourly values per bidding zone and production type
 # MAGIC
-# MAGIC Elområde, kraftslag och period står bara i filnamnet, inte i
-# MAGIC innehållet. De plockas ut här så att varje rad blir självbeskrivande.
+# MAGIC The bidding zone, production type and period exist only in the file
+# MAGIC name, not in the content. They are extracted here so that every row
+# MAGIC is self-describing.
 # MAGIC
-# MAGIC Summa-raden sist i varje fil läses in som vanlig data. Den är en del
-# MAGIC av det källan levererade och filtreras bort i silver, inte här.
+# MAGIC The Summa (total) row at the end of each file is loaded as ordinary
+# MAGIC data. It is part of what the source delivered, and it is filtered
+# MAGIC out in silver, not here.
 
 # COMMAND ----------
 
 mimer_files = spark.read.format("binaryFile").load(f"{LANDING}/mimer/*.csv")
-print(f"{mimer_files.count()} filer i landing/mimer")
+print(f"{mimer_files.count()} files in landing/mimer")
 
 raw = (
     spark.read
@@ -61,8 +64,8 @@ raw = (
     .csv(f"{LANDING}/mimer/*.csv")
 )
 
-# Tre kolumner plus en tom från det avslutande semikolonet i rubriken.
-assert len(raw.columns) == 4, f"Oväntat antal kolumner: {raw.columns}"
+# Three columns plus an empty one from the trailing semicolon in the header.
+assert len(raw.columns) == 4, f"Unexpected column count: {raw.columns}"
 
 file_path = F.col("_metadata.file_path")
 pattern = r"(SE\d)_([a-z_]+)_(\d{8})_(\d{8})\.csv$"
@@ -78,23 +81,23 @@ mimer_bronze = (
 )
 
 assert mimer_bronze.filter(F.col("area") == "").count() == 0, \
-    "Något filnamn följer inte mönstret SEn_kraftslag_datum_datum.csv"
+    "A file name does not follow the pattern SEn_type_date_date.csv"
 
 (mimer_bronze.write
     .format("delta").mode("overwrite").option("overwriteSchema", "true")
     .saveAsTable("bronze.mimer_production"))
 
-print(f"{spark.table('bronze.mimer_production').count():,} rader skrivna")
+print(f"{spark.table('bronze.mimer_production').count():,} rows written")
 
 # COMMAND ----------
 
 # MAGIC %md
-# MAGIC ## Manifestet
+# MAGIC ## The manifest
 # MAGIC
-# MAGIC Nedladdningsskriptets logg: URL, tidpunkt, byte, SHA-256 och antal
-# MAGIC rader per fil. Den gör det möjligt att kontrollera att bronze
-# MAGIC innehåller exakt det som hämtades, och den registrerar de
-# MAGIC kombinationer som saknar data helt.
+# MAGIC The download script's log: URL, timestamp, bytes, SHA-256 and row
+# MAGIC count per file. It makes it possible to verify that bronze holds
+# MAGIC exactly what was fetched, and it records the combinations that have
+# MAGIC no data at all.
 
 # COMMAND ----------
 
@@ -109,17 +112,18 @@ manifest = (
 
 display(
     manifest.groupBy("status")
-    .agg(F.count("*").alias("filer"), F.sum("data_rows").alias("rader"))
+    .agg(F.count("*").alias("files"), F.sum("data_rows").alias("rows"))
 )
 
 # COMMAND ----------
 
 # MAGIC %md
-# MAGIC ### Kontroll: stämmer bronze med det som hämtades?
+# MAGIC ### Check: does bronze match what was downloaded?
 # MAGIC
-# MAGIC Radantalet per fil i bronze ska vara manifestets `data_rows` plus
-# MAGIC ett, eftersom Summa-raden räknades bort vid nedladdningen men läses
-# MAGIC in här. Avviker någon fil har något gått förlorat på vägen.
+# MAGIC The row count per file in bronze should be the manifest's
+# MAGIC `data_rows` plus one, since the Summa row was excluded at download
+# MAGIC time but is loaded here. Any deviation means something was lost on
+# MAGIC the way in.
 
 # COMMAND ----------
 
@@ -138,30 +142,29 @@ check = (
 mismatches = check.filter((F.col("diff") != 0) | F.col("diff").isNull())
 if mismatches.count() > 0:
     display(mismatches)
-    raise AssertionError("Bronze stämmer inte med manifestet, se tabellen ovan")
-print(f"OK: {check.count()} filer stämmer mot manifestet")
+    raise AssertionError("Bronze does not match the manifest, see the table above")
+print(f"OK: {check.count()} files match the manifest")
 
 # COMMAND ----------
 
 # MAGIC %md
-# MAGIC ## SCB: månadsvärden per elområde
+# MAGIC ## SCB: monthly values per bidding zone
 # MAGIC
-# MAGIC Filen är i ISO-8859-1. Läses den som UTF-8 blir "elområde" till
-# MAGIC "elomr?de", och felet följer med hela vägen till gold.
+# MAGIC The file is ISO-8859-1. Read as UTF-8, "elområde" (bidding zone)
+# MAGIC turns into "elomr?de", and the damage follows all the way to gold.
 # MAGIC
-# MAGIC Raderna sparas i den ordning de står i filen. `line_no` behövs för
-# MAGIC att silver ska kunna hitta rubrikraden och veta vilka rader som är
-# MAGIC data.
+# MAGIC Lines are stored in the order they appear. `line_no` lets silver
+# MAGIC locate the header row and know which rows are data.
 
 # COMMAND ----------
 
-SENTINEL = "\u0001"  # förekommer inte i filen, ger en kolumn per rad
+SENTINEL = "\u0001"  # does not occur in the file, gives one column per line
 
 scb_lines = (
     spark.read
     .option("encoding", "ISO-8859-1")
     .option("sep", SENTINEL)
-    .option("quote", "\u0000")   # stäng av citattolkning, raden ska in rå
+    .option("quote", "\u0000")   # disable quote handling, keep the line raw
     .option("header", False)
     .csv(f"{LANDING}/scb/*.csv")
     .select(F.coalesce(F.col("_c0"), F.lit("")).alias("value"), "_metadata")
@@ -177,31 +180,31 @@ scb_lines = (
     .format("delta").mode("overwrite").option("overwriteSchema", "true")
     .saveAsTable("bronze.scb_raw_lines"))
 
-print(f"{spark.table('bronze.scb_raw_lines').count():,} rader skrivna")
+print(f"{spark.table('bronze.scb_raw_lines').count():,} rows written")
 
-# Kontroll: teckenkodningen ska vara rättad.
-# Ersättningstecken räcker inte som test, eftersom ISO-8859-1 kan avkoda
-# vilken bytesekvens som helst utan att klaga. Kontrollera i stället att
-# ett ord som måste finnas i filen faktiskt går att hitta.
+# Check: the encoding must be correct.
+# Replacement characters are not a sufficient test, because ISO-8859-1 can
+# decode any byte sequence without complaining. Check instead that a word
+# which must exist in the file can actually be found.
 scb = spark.table("bronze.scb_raw_lines")
 assert scb.filter(F.col("line").contains("\ufffd")).count() == 0, \
-    "Ersättningstecken i SCB-datan, teckenkodningen är fel"
+    "Replacement characters in the SCB data, the encoding is wrong"
 assert scb.filter(F.col("line").contains("elområde")).count() > 0, \
-    "Hittar inte 'elområde' i SCB-datan, teckenkodningen är fel"
-print("OK: SCB-datan är läsbar och svenska tecken är intakta")
+    "Cannot find 'elområde' in the SCB data, the encoding is wrong"
+print("OK: the SCB data is readable and Swedish characters are intact")
 
 display(spark.table("bronze.scb_raw_lines").orderBy("line_no").limit(5))
 
 # COMMAND ----------
 
 # MAGIC %md
-# MAGIC ## Vad som nu finns
+# MAGIC ## What now exists
 # MAGIC
-# MAGIC - `bronze.mimer_production` — timvärden, allt som text
-# MAGIC - `bronze.mimer_manifest` — vad som hämtades och när
-# MAGIC - `bronze.scb_raw_lines` — SCB-filens rader, rätt teckenkodning
+# MAGIC - `bronze.mimer_production` — hourly values, all as text
+# MAGIC - `bronze.mimer_manifest` — what was fetched and when
+# MAGIC - `bronze.scb_raw_lines` — the SCB file's lines, correctly encoded
 # MAGIC
-# MAGIC Inget är normaliserat, inget är borttaget. Silver tar vid.
+# MAGIC Nothing is normalised, nothing is removed. Silver takes over.
 
 # COMMAND ----------
 

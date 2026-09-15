@@ -1,20 +1,20 @@
 """
-Hämtar produktionsstatistik från Svenska kraftnäts Mimer som råfiler.
+Download production statistics from Svenska kraftnät's Mimer as raw files.
 
-Filerna sparas exakt som de levereras: ingen tolkning, ingen omkodning.
-Varje hämtning loggas i manifest.jsonl med URL, tidpunkt, storlek och
-SHA-256, så att bronze-lagret kan spåra varje rad till en specifik fil.
+Files are stored exactly as delivered: no parsing, no re-encoding. Every
+download is logged to manifest.jsonl with URL, timestamp, size and
+SHA-256, so the bronze layer can trace any row back to a specific file.
 
-Vissa kombinationer av elområde och kraftslag finns inte. Kärnkraft i SE1
-är ett exempel: Mimer svarar då med enbart en Summa-rad och inga data.
-Det är inte ett fel, utan en uppgift i sig. SCB skriver 0 för samma
-kombination. Tomma svar sparas därför under empty/ och registreras i
-manifestet med status "no_data", men lämnas utanför bronze.
+Some combinations of bidding zone and production type do not exist.
+Nuclear in SE1 is one: Mimer responds with only a Summa (total) row and
+no data. That is not an error, it is information. SCB writes 0 for the
+same combination. Empty responses are therefore stored under empty/ and
+logged with status "no_data", but kept out of bronze.
 
-Mimer har produktionsdata till och med 2025-03-17. Senare perioder
-publiceras av eSett och hämtas separat.
+Mimer publishes production data through 2025-03-17. Later periods are
+published by eSett and fetched separately.
 
-Kör från repots rot:  python ingest/download_mimer.py
+Run from the repository root:  python ingest/download_mimer.py
 """
 import hashlib
 import json
@@ -29,20 +29,22 @@ OUT_DIR = Path(__file__).resolve().parents[1] / "data" / "raw" / "mimer"
 EMPTY_DIR = OUT_DIR / "empty"
 MANIFEST = OUT_DIR / "manifest.jsonl"
 
+# Mimer uses SN1-SN4 for the bidding zones, SCB uses SE1-SE4.
 AREAS = {"SN1": "SE1", "SN2": "SE2", "SN3": "SE3", "SN4": "SE4"}
 
-# Koder från Mimers nedladdningslänkar. KK och VI är verifierade.
-# Fyll i resten genom att kopiera länken bakom "Spara som CSV" i Mimer.
+# Codes taken from Mimer's own download links. The production type exists
+# only in the URL, never inside the file, which is why the night-time
+# check in the silver layer matters.
 PRODUCTION_TYPES = {
-    "KK": "karnkraft",
-    "VI": "vindkraft",
-    "VA": "vattenkraft",
-    "SE": "solkraft",
-    "OK": "ovrig_varmekraft",
-    "OP": "uppmatt_ospecificerad",
+    "KK": "nuclear",
+    "VI": "wind",
+    "VA": "hydro",
+    "SE": "solar",
+    "OK": "thermal",
+    "OP": "unspecified",
 }
 
-# Hela år per fil. Slutdatumet räknas inklusive hela dygnet.
+# One file per full year. The end date covers the whole final day.
 PERIODS = [
     (date(2021, 1, 1), date(2021, 12, 31)),
     (date(2022, 1, 1), date(2022, 12, 31)),
@@ -51,11 +53,11 @@ PERIODS = [
     (date(2025, 1, 1), date(2025, 2, 28)),
 ]
 
-PAUSE_SECONDS = 1.5  # var snäll mot en offentlig tjänst
+PAUSE_SECONDS = 1.5  # be kind to a public service
 
 
 def mimer_date(d: date) -> str:
-    # Mimer vill ha amerikanskt datumformat i URL:en, trots ISO i filen.
+    # Mimer expects US date format in the URL, despite ISO inside the file.
     return d.strftime("%m/%d/%Y 00:00:00")
 
 
@@ -67,7 +69,7 @@ def log(entry: dict) -> None:
 def download(area: str, sort_id: str, start: date, end: date) -> None:
     name = f"{AREAS[area]}_{PRODUCTION_TYPES[sort_id]}_{start:%Y%m%d}_{end:%Y%m%d}.csv"
     if (OUT_DIR / name).exists() or (EMPTY_DIR / name).exists():
-        print(f"finns redan  {name}")
+        print(f"already there  {name}")
         return
 
     url = BASE_URL + "?" + urlencode({
@@ -85,9 +87,9 @@ def download(area: str, sort_id: str, start: date, end: date) -> None:
     is_empty = text.strip().startswith("Summa;")
 
     if not has_header and not is_empty:
-        raise RuntimeError(f"Oväntat svar för {name}: {text[:64]!r}. Kontrollera koderna.")
+        raise RuntimeError(f"Unexpected response for {name}: {text[:64]!r}. Check the codes.")
 
-    # Datarader räknas exklusive rubrik, Summa-rad och tomma rader.
+    # Data rows exclude the header, the Summa row and blank lines.
     rows = [
         line for line in text.splitlines()
         if line.strip() and not line.startswith("Period;") and not line.startswith("Summa;")
@@ -115,9 +117,9 @@ def download(area: str, sort_id: str, start: date, end: date) -> None:
     })
 
     if has_header:
-        print(f"hämtad       {name}  ({len(rows):,} rader)")
+        print(f"downloaded     {name}  ({len(rows):,} rows)")
     else:
-        print(f"inga data    {name}  (kombinationen finns inte)")
+        print(f"no data        {name}  (combination does not exist)")
     time.sleep(PAUSE_SECONDS)
 
 
