@@ -1,0 +1,20 @@
+source,source_category,category,measure,comparable
+mimer,hydro,hydro,production,true
+mimer,wind,wind,production,true
+mimer,solar,solar,production,true
+mimer,nuclear,nuclear,production,true
+mimer,thermal,thermal,production,true
+mimer,unspecified,unspecified,production,false
+scb,summa produktion,total_production,total,false
+scb,"vattenkraft (inkl. pumpkraft), netto",hydro,production,true
+scb,vindkraft,wind,production,true
+scb,solkraft,solar,production,true
+scb,"kärnkraft (kondens), netto",nuclear,production,true
+scb,"konventionell värmekraft, netto",thermal,production,true
+scb,summa användning,total_consumption,consumption,false
+scb,mineralutvinning och tillverkning,industry,consumption,false
+scb,"el-, gas-, värme- och vattenverk",utilities,consumption,false
+scb,"järn- och spårvägar, busstrafik",transport,consumption,false
+scb,"övrigt (bostäder, service m.m.)",other,consumption,false
+scb,förluster,losses,consumption,false
+scb,överföring till eller från annat elområde eller land,net_transfer,transfer,false

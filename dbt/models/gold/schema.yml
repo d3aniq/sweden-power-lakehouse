@@ -1,0 +1,61 @@
+version: 2
+
+models:
+  - name: production_monthly
+    description: >
+      Monthly production per bidding zone and type, from both sources in
+      the same shape. Only months where Mimer covers every hour.
+    columns:
+      - name: source
+        tests:
+          - not_null
+          - accepted_values:
+              values: ['mimer', 'scb']
+      - name: area
+        tests: [not_null]
+      - name: category
+        tests: [not_null]
+      - name: month
+        tests: [not_null]
+      - name: value_mwh
+        tests: [not_null]
+    tests:
+      - dbt_utils.unique_combination_of_columns:
+          combination_of_columns: [source, area, category, month]
+
+  - name: source_reconciliation
+    description: >
+      Svenska kraftnät against SCB, month by month. Three production types
+      agree to within a tenth of a percent. Solar and thermal do not, and
+      they deviate the same way in every zone, because SCB counts
+      production that never reaches the grid.
+    columns:
+      - name: mimer_mwh
+        tests: [not_null]
+      - name: scb_mwh
+        tests: [not_null]
+      - name: diff_mwh
+        tests: [not_null]
+      - name: within_rounding
+        description: Whether the difference fits inside SCB's own integer rounding.
+        tests: [not_null]
+    tests:
+      - dbt_utils.unique_combination_of_columns:
+          combination_of_columns: [area, category, month]
+
+  - name: hourly_profile
+    description: >
+      Average production by hour of day, per zone, category and year. The
+      shape of the day, which monthly statistics cannot show.
+    columns:
+      - name: hour_of_day
+        tests:
+          - not_null
+          - accepted_values:
+              values: [0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23]
+              quote: false
+
+  - name: excluded_months
+    description: >
+      Months where Mimer does not cover every hour, kept visible instead of
+      dropped. February 2025 is expected; anything else deserves a look.

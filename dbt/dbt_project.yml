@@ -1,0 +1,29 @@
+name: sweden_power_lakehouse
+version: '1.0.0'
+profile: sweden_power_lakehouse
+
+model-paths: ["models"]
+seed-paths: ["seeds"]
+macro-paths: ["macros"]
+test-paths: ["tests"]
+target-path: "target"
+clean-targets: ["target", "dbt_packages"]
+
+models:
+  sweden_power_lakehouse:
+    silver:
+      +schema: silver
+      +materialized: table
+    gold:
+      +schema: gold
+      +materialized: table
+
+seeds:
+  sweden_power_lakehouse:
+    +schema: silver
+
+vars:
+  # SCB reports GWh as integers, so every value carries 500 MWh of
+  # rounding either way. Differences smaller than this are rounding,
+  # not disagreement.
+  scb_rounding_mwh: 500

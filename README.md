@@ -123,9 +123,66 @@ Writing both as 0 makes every average across bidding zones wrong.
 
 ---
 
+## The dbt layer
+
+Silver and gold exist twice: once as PySpark notebooks, once as dbt models.
+They produce identical tables, and that is the point — the notebooks came
+first, and dbt was added on top to see what the switch actually buys.
+
+What it buys:
+
+- **No manual ordering.** `source_reconciliation` reads
+  `ref('production_monthly')`, which reads `ref('production_hourly')`,
+  which reads `ref('category_mapping')`. dbt derives the dependency graph
+  from those references and runs the models in order. Nothing tells it
+  that the seed comes first.
+- **Tests as their own files.** The quality gates below are `assert`
+  statements inside a notebook in the PySpark version. In dbt they are
+  declarations in YAML, plus two SQL files that return the rows which must
+  not exist. A reviewer can read them without reading the pipeline.
+- **The mapping is data, not code.** `seeds/category_mapping.csv` replaces
+  a Python list. It can be changed in a pull request by someone who does
+  not write Spark.
+- **Generated documentation.** `dbt docs generate` builds a lineage graph
+  from bronze through every model to every test.
+
+![Lineage from bronze through the models to the tests](docs/dbt-lineage.png)
+
+Read left to right: the source in green, the mapping seed beside it, then
+`production_hourly` and everything built from it. Both hand-written tests
+appear as nodes, and `energy_balance_silver_to_gold` depends on silver and
+gold at once, which is exactly what a balance check should do.
+
+### What stays in PySpark
+
+Parsing the SCB file. It is wide, with a title row, a blank row and a
+number of month columns that grows every time the table is updated.
+Unpivoting that in SQL would need introspection at compile time. Spark
+does it in a few lines, and dbt takes over once the data is rectangular —
+the notebook's output is declared as a source in `models/sources.yml`.
+
+dbt transforms structured data. It does not parse semi-structured text,
+and it does not ingest. Using it for either would be using it wrong.
+
+### Running it
+
+```bash
+cd dbt
+$env:DATABRICKS_TOKEN = "..."   # never stored in a file
+dbt deps  --profiles-dir .
+dbt build --profiles-dir .      # seed, models and tests in dependency order
+```
+
+`profiles.yml` reads the token from the environment, so the file itself
+carries no secret and is checked in.
+
+---
+
 ## Quality gates
 
-The job fails loudly rather than delivering quietly wrong data.
+The job fails loudly rather than delivering quietly wrong data. Every
+check below exists in both implementations: as an `assert` in the PySpark
+notebooks, and as a dbt test (29 of them, run by `dbt build`).
 
 | Check | What it catches |
 |---|---|
@@ -193,6 +250,10 @@ Databricks Free Edition and run the notebooks in order:
 | `notebooks/02_silver.py` | normalisation and quality gates |
 | `notebooks/03_gold.py` | aggregates and source reconciliation |
 
+Bronze must run first — it loads the files and parses the SCB text. Silver
+and gold can then be built either by the notebooks or by `dbt build`; both
+produce the same tables.
+
 Everything runs on Databricks Free Edition at no cost.
 
 ---
@@ -203,9 +264,10 @@ Everything runs on Databricks Free Edition at no cost.
   Reasonable for four years of history that does not change, wrong for a
   source updated daily. The right approach is a merge on key with the
   publication timestamp as the version field.
-- **Orchestration.** The notebooks are run manually in order. Databricks
-  Jobs can handle the chain, but dependencies between steps and retry on
-  failure belong in Airflow or Lakeflow.
+- **Orchestration.** dbt resolves ordering within the transformation layer,
+  but nothing schedules the chain from download through bronze to `dbt
+  build`. Databricks Jobs can run it; retry on failure and alerting belong
+  in Airflow or Lakeflow.
 - **Test coverage.** The quality gates run against real data. There are no
   unit tests on the transformations themselves, with synthetic cases for
   decimal comma, daylight saving and empty source responses.
@@ -221,7 +283,7 @@ Everything runs on Databricks Free Edition at no cost.
 ## Stack
 
 Databricks Free Edition (serverless), PySpark, Delta Lake, Unity Catalog,
-Python.
+dbt (dbt-databricks, dbt_utils), Python.
 
 Swedish source terms are kept in the original throughout — *elområde*
 (bidding zone), *Mimer*, *avräknad* (settled) — so that they can be looked

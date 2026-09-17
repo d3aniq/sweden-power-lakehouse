@@ -1,0 +1,57 @@
+version: 2
+
+models:
+  - name: production_hourly
+    description: >
+      Hourly settled electricity production from Svenska kraftnät, one row
+      per bidding zone, production type and hour, in MWh. Republished hours
+      are reduced to their latest version; `published_at` records which.
+    columns:
+      - name: source
+        description: Always 'mimer' in this model.
+        tests:
+          - not_null
+          - accepted_values:
+              values: ['mimer']
+
+      - name: area
+        description: Bidding zone, SE1-SE4.
+        tests:
+          - not_null
+          - accepted_values:
+              values: ['SE1', 'SE2', 'SE3', 'SE4']
+
+      - name: category
+        description: >
+          Shared vocabulary from the mapping table. A null here means a
+          production type reached silver without a mapping, which must
+          never happen.
+        tests:
+          - not_null
+          - relationships:
+              to: ref('category_mapping')
+              field: category
+
+      - name: ts
+        description: Timestamp of the hour. Not local time — every day has 24 hours.
+        tests:
+          - not_null
+
+      - name: value_mwh
+        description: Settled production in MWh, converted from kWh.
+        tests:
+          - not_null
+
+      - name: published_at
+        description: When Svenska kraftnät published this value. Explains revisions.
+        tests:
+          - not_null
+
+    tests:
+      # One observation per zone, type and hour. Duplicates here would
+      # silently double a monthly sum.
+      - dbt_utils.unique_combination_of_columns:
+          combination_of_columns:
+            - area
+            - category
+            - ts

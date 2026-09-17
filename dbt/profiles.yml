@@ -1,0 +1,14 @@
+# Tokenen ligger aldrig här. Sätt den som miljövariabel före körning:
+#   $env:DATABRICKS_TOKEN = "..."
+# Host och http_path är inte hemligheter; utan token kommer ingen in.
+sweden_power_lakehouse:
+  target: dev
+  outputs:
+    dev:
+      type: databricks
+      host: dbc-be67c292-5250.cloud.databricks.com
+      http_path: /sql/1.0/warehouses/2b656d5fcdf39207
+      token: "{{ env_var('DATABRICKS_TOKEN') }}"
+      catalog: workspace
+      schema: silver
+      threads: 4

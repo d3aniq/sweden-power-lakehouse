@@ -1,0 +1,22 @@
+version: 2
+
+seeds:
+  - name: category_mapping
+    description: >
+      The sources name the same things differently and do not cover quite
+      the same things. This mapping lives in a file rather than in code, so
+      it can be read, changed and reviewed without touching a model.
+      `comparable` records whether a category can be compared across the two
+      sources at all.
+    columns:
+      - name: source
+        tests:
+          - accepted_values:
+              values: ['mimer', 'scb']
+      - name: category
+        tests:
+          - not_null
+      - name: measure
+        tests:
+          - accepted_values:
+              values: ['production', 'consumption', 'total', 'transfer']

@@ -1,0 +1,46 @@
+version: 2
+
+sources:
+  - name: bronze
+    database: workspace
+    schema: bronze
+    description: >
+      Faithful copies of what the sources delivered, loaded by the
+      notebooks in notebooks/01_bronze.py. dbt reads bronze but never
+      writes to it.
+    tables:
+      - name: mimer_production
+        description: Hourly settled production, all columns as text.
+        columns:
+          - name: period_raw
+            description: Timestamp as delivered, "yyyy-MM-dd HH:mm" or the literal "Summa".
+          - name: settled_kwh_raw
+            description: Value in kWh, decimal comma in some rows.
+          - name: published_at_raw
+            description: When Svenska kraftnät published this value.
+          - name: area
+            description: SE1-SE4, extracted from the file name.
+          - name: production_type
+            description: Extracted from the file name, not present in the file itself.
+      - name: mimer_manifest
+        description: Download log with status, row counts and SHA-256 per file.
+      - name: scb_raw_lines
+        description: The SCB file's lines, correctly decoded from ISO-8859-1.
+
+  - name: silver_notebook
+    database: workspace
+    schema: silver
+    description: >
+      Tables in silver that are still built by the PySpark notebooks. The
+      SCB file is wide, with a title row, a blank row and a variable number
+      of month columns, so parsing it is a job for Spark rather than SQL.
+      dbt takes over once the data is rectangular.
+    tables:
+      - name: production_monthly
+        description: SCB monthly values per bidding zone, normalised to MWh.
+        columns:
+          - name: availability
+            description: >
+              reported, not_applicable or unknown. SCB writes 0 where a
+              category does not exist; not_applicable keeps that apart from
+              a measured zero.
