@@ -1,0 +1,5 @@
+# Language statistics on GitHub
+# dbt docs are generated, so they should not count as the project's language.
+dbt/target/** linguist-generated
+# dbt models are SQL; GitHub hides SQL from the language bar by default.
+*.sql linguist-detectable
