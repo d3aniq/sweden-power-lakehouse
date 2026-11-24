@@ -27,7 +27,7 @@ bidding zones.
 | Solar | 39–52 % | **Mimer lower** | 0–26 of 50 |
 | Thermal | 37–81 % | **Mimer lower** | 0 of 50 |
 
-Three production types agree to within a tenth of a percent. Two do not,
+Three production types agree to within 0.2 percent. Two do not,
 and they deviate in the same direction in every bidding zone and every
 month. That is not noise.
 
